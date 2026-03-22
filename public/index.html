@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#060b08">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Codex Pocket</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="noise"></div>
+    <div class="radar-grid"></div>
+    <div class="app-shell" data-panel="chat">
+      <aside class="thread-rail glass-panel" id="threadRail">
+        <div class="rail-header">
+          <div>
+            <p class="eyebrow">Local Runtime</p>
+            <h1>Codex Pocket</h1>
+          </div>
+          <button class="ghost-button" id="newThreadButton" type="button">New Thread</button>
+        </div>
+        <div class="rail-stats">
+          <div class="stat-card">
+            <span class="stat-label">Connection</span>
+            <strong id="connectionLabel">Booting</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Approvals</span>
+            <strong id="approvalCount">0</strong>
+          </div>
+        </div>
+        <div class="thread-list" id="threadList"></div>
+      </aside>
+
+      <main class="conversation-stage">
+        <header class="stage-header glass-panel">
+          <div class="brand-cluster">
+            <button class="chrome-button mobile-only" data-panel-target="threads" type="button">Threads</button>
+            <div>
+              <p class="eyebrow">Mac-linked Codex</p>
+              <h2 id="threadTitle">Waiting for threads</h2>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button class="chrome-button" data-panel-target="plan" type="button">Plan</button>
+            <button class="chrome-button" data-panel-target="diff" type="button">Diff</button>
+            <button class="chrome-button" data-panel-target="approvals" type="button">Approvals</button>
+            <button class="danger-button" id="interruptButton" type="button">Interrupt</button>
+          </div>
+        </header>
+
+        <section class="thread-meta glass-panel">
+          <div class="meta-grid">
+            <div>
+              <span class="meta-label">Workspace</span>
+              <strong id="threadWorkspace">/Users/you</strong>
+            </div>
+            <div>
+              <span class="meta-label">Source</span>
+              <strong id="threadSource">codex app-server</strong>
+            </div>
+            <div>
+              <span class="meta-label">Status</span>
+              <strong id="threadStatus">Standby</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="timeline glass-panel" id="timeline">
+          <div class="timeline-empty">
+            <p class="eyebrow">Signal Intake</p>
+            <h3>Select a thread to jack in.</h3>
+          </div>
+        </section>
+
+        <footer class="composer-shell glass-panel">
+          <label class="composer-label" for="composerInput">Send a new turn</label>
+          <div class="composer-row">
+            <textarea id="composerInput" rows="3" placeholder="Continue the thread, steer the plan, request a diff review, or drive the command flow."></textarea>
+            <button class="send-button" id="sendButton" type="button">Transmit</button>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="signal-stack">
+        <section class="signal-panel glass-panel" id="planPanel">
+          <div class="panel-header">
+            <p class="eyebrow">Plan Lattice</p>
+            <h3>Turn Plan</h3>
+          </div>
+          <div class="panel-body" id="planBody">
+            <p class="panel-placeholder">No active plan telemetry.</p>
+          </div>
+        </section>
+
+        <section class="signal-panel glass-panel" id="diffPanel">
+          <div class="panel-header">
+            <p class="eyebrow">Patch Vector</p>
+            <h3>Unified Diff</h3>
+          </div>
+          <div class="panel-body diff-body" id="diffBody">
+            <p class="panel-placeholder">No diff emitted yet.</p>
+          </div>
+        </section>
+
+        <section class="signal-panel glass-panel" id="approvalPanel">
+          <div class="panel-header">
+            <p class="eyebrow">Trust Boundary</p>
+            <h3>Pending Approvals</h3>
+          </div>
+          <div class="panel-body" id="approvalBody">
+            <p class="panel-placeholder">No pending approvals.</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="auth-gate" id="authGate" hidden>
+      <div class="auth-card glass-panel">
+        <p class="eyebrow">Access Control</p>
+        <h2 id="authTitle">Create your password</h2>
+        <p class="auth-copy" id="authCopy">On first load, set the password you want to use for this bridge. It will be stored locally on your Mac as a salted hash.</p>
+        <input id="authInput" type="password" autocomplete="new-password" placeholder="Password">
+        <input id="authConfirmInput" type="password" autocomplete="new-password" placeholder="Confirm password">
+        <button class="send-button" id="authButton" type="button">Continue</button>
+        <p class="auth-error" id="authError"></p>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

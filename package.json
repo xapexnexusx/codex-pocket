@@ -1,0 +1,15 @@
+{
+  "name": "codex-pocket",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Codex bridge and cyberpunk iPhone PWA.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node -c server.js && node -c lib/auth.js && node -c lib/codex-store.js && node -c lib/codex-app-server.js && node -c lib/routes.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Codex Pocket",
+  "short_name": "Pocket",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050806",
+  "theme_color": "#060b08",
+  "description": "Local-first Codex command bridge and iPhone PWA.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

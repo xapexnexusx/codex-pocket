@@ -763,6 +763,10 @@ function authHeaders() {
 async function submitPassword() {
   const password = elements.authInput.value;
   const confirm = elements.authConfirmInput.value;
+  const originalLabel = elements.authButton.textContent;
+  elements.authButton.disabled = true;
+  elements.authError.textContent = '';
+  elements.authButton.textContent = state.auth.mode === 'setup' ? 'Creating...' : 'Unlocking...';
 
   try {
     let response;
@@ -781,9 +785,13 @@ async function submitPassword() {
     localStorage.setItem('codex-pocket-session', state.auth.sessionToken);
     elements.authInput.value = '';
     elements.authConfirmInput.value = '';
+    hideAuthGate();
     await loadProtectedState();
   } catch (error) {
     showAuthGate(error.message);
+  } finally {
+    elements.authButton.disabled = false;
+    elements.authButton.textContent = originalLabel;
   }
 }
 

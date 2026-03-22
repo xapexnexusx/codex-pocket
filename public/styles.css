@@ -526,6 +526,7 @@ textarea:focus {
 
 .auth-error {
   min-height: 1.4em;
+  color: #ffd76a;
 }
 
 .auth-card input {

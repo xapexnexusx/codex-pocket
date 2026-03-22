@@ -130,7 +130,7 @@ function isAuthorizedRequest(request, authManager) {
 
 function isAllowedOrigin(request) {
   const origin = request.headers.origin;
-  if (!origin) {
+  if (!origin || origin === 'null') {
     return true;
   }
   const protocol = request.headers['x-forwarded-proto'] || 'http';

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'codex-pocket-v1';
+const CACHE_NAME = 'codex-pocket-v2';
 const SHELL_ASSETS = [
   '/',
   '/index.html',

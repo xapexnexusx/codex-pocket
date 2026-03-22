@@ -785,9 +785,15 @@ async function submitPassword() {
     localStorage.setItem('codex-pocket-session', state.auth.sessionToken);
     elements.authInput.value = '';
     elements.authConfirmInput.value = '';
-    hideAuthGate();
-    await loadProtectedState();
+    window.location.reload();
   } catch (error) {
+    if (error.message === 'Password already configured.') {
+      state.auth.configured = true;
+      state.auth.mode = 'login';
+      syncAuthGate();
+      showAuthGate('Password is already set. Enter it below to unlock.');
+      return;
+    }
     showAuthGate(error.message);
   } finally {
     elements.authButton.disabled = false;

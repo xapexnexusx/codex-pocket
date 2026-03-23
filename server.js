@@ -119,12 +119,7 @@ start().catch((error) => {
 });
 
 function isAuthorizedRequest(request, authManager) {
-  const url = new URL(request.url || '/', 'http://localhost');
-  const headerToken = request.headers['x-codex-pocket-session'];
-  const authHeader = request.headers.authorization;
-  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const queryToken = url.searchParams.get('session');
-  const token = headerToken || bearerToken || queryToken || '';
+  const token = readSessionToken(request);
   return authManager.hasSession(token);
 }
 
@@ -136,4 +131,26 @@ function isAllowedOrigin(request) {
   const protocol = request.headers['x-forwarded-proto'] || 'http';
   const expectedOrigin = `${protocol}://${request.headers.host}`;
   return origin === expectedOrigin;
+}
+
+function readSessionToken(request) {
+  const cookies = parseCookies(request.headers.cookie || '');
+  return cookies.codex_pocket_session || '';
+}
+
+function parseCookies(cookieHeader) {
+  return cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, part) => {
+      const index = part.indexOf('=');
+      if (index === -1) {
+        return acc;
+      }
+      const key = part.slice(0, index).trim();
+      const value = decodeURIComponent(part.slice(index + 1));
+      acc[key] = value;
+      return acc;
+    }, {});
 }

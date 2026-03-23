@@ -8,7 +8,6 @@ const state = {
     lastError: null
   },
   auth: {
-    sessionToken: localStorage.getItem('codex-pocket-session') || '',
     configured: true,
     mode: 'login'
   }
@@ -54,11 +53,6 @@ async function loadAuthState() {
   syncAuthGate();
 
   if (!state.auth.configured) {
-    showAuthGate();
-    return;
-  }
-
-  if (!state.auth.sessionToken) {
     showAuthGate();
     return;
   }
@@ -173,16 +167,12 @@ async function respondApproval(id, decision) {
 }
 
 function connectSocket() {
-  if (!state.auth.sessionToken) {
-    return;
-  }
-
   if (socket) {
     socket.close();
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  socket = new WebSocket(`${protocol}://${window.location.host}/ws?session=${encodeURIComponent(state.auth.sessionToken)}`);
+  socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
 
   socket.addEventListener('open', () => {
     state.connection.connected = true;
@@ -193,9 +183,6 @@ function connectSocket() {
   socket.addEventListener('close', () => {
     state.connection.connected = false;
     renderConnection();
-    if (!state.auth.sessionToken) {
-      return;
-    }
     window.setTimeout(connectSocket, 2000);
   });
 
@@ -654,13 +641,12 @@ async function refetchThread(threadId) {
 
 async function fetchJson(url, requireAuth = true) {
   const response = await fetch(url, {
+    credentials: 'same-origin',
     headers: {
-      Accept: 'application/json',
-      ...(requireAuth ? authHeaders() : {})
+      Accept: 'application/json'
     }
   });
   if (response.status === 401) {
-    clearSession();
     showAuthGate('Enter your password to unlock the bridge.');
     const error = new Error('AUTH_REQUIRED');
     error.code = 'AUTH_REQUIRED';
@@ -675,15 +661,14 @@ async function fetchJson(url, requireAuth = true) {
 async function postJson(url, payload) {
   const response = await fetch(url, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...authHeaders()
+      Accept: 'application/json'
     },
     body: JSON.stringify(payload)
   });
   if (response.status === 401) {
-    clearSession();
     showAuthGate('Enter your password to unlock the bridge.');
     const error = new Error('AUTH_REQUIRED');
     error.code = 'AUTH_REQUIRED';
@@ -698,6 +683,7 @@ async function postJson(url, payload) {
 async function postPublicJson(url, payload) {
   const response = await fetch(url, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json'
@@ -735,10 +721,10 @@ function normalizeStatus(status) {
 
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then((registration) => registration.update().catch(() => {}))
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
       .catch((error) => {
-        console.error('service worker registration failed', error);
+        console.error('service worker cleanup failed', error);
       });
   }
 }
@@ -756,10 +742,6 @@ function approvalButtons(approval) {
     <button data-approval="${escapeHtml(approval.id)}" data-decision="acceptForSession">Allow Session</button>
     <button data-approval="${escapeHtml(approval.id)}" data-decision="decline">Decline</button>
   `;
-}
-
-function authHeaders() {
-  return state.auth.sessionToken ? { 'X-Codex-Pocket-Session': state.auth.sessionToken } : {};
 }
 
 async function submitPassword() {
@@ -783,8 +765,6 @@ async function submitPassword() {
       response = await postPublicJson('/api/auth/login', { password });
     }
 
-    state.auth.sessionToken = response.sessionToken;
-    localStorage.setItem('codex-pocket-session', state.auth.sessionToken);
     elements.authInput.value = '';
     elements.authConfirmInput.value = '';
     await loadProtectedState();
@@ -806,6 +786,7 @@ async function submitPassword() {
 function showAuthGate(message = '') {
   if (socket) {
     socket.close();
+    socket = null;
   }
   syncAuthGate();
   elements.authGate.hidden = false;
@@ -833,8 +814,7 @@ function syncAuthGate() {
 }
 
 function clearSession() {
-  state.auth.sessionToken = '';
-  localStorage.removeItem('codex-pocket-session');
+  return undefined;
 }
 
 bootstrap().catch((error) => {

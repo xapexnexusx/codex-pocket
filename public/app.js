@@ -6,10 +6,6 @@ const state = {
   connection: {
     connected: false,
     lastError: null
-  },
-  auth: {
-    configured: true,
-    mode: 'login'
   }
 };
 
@@ -30,51 +26,21 @@ const elements = {
   composerInput: document.getElementById('composerInput'),
   sendButton: document.getElementById('sendButton'),
   interruptButton: document.getElementById('interruptButton'),
-  newThreadButton: document.getElementById('newThreadButton'),
-  authGate: document.getElementById('authGate'),
-  authTitle: document.getElementById('authTitle'),
-  authCopy: document.getElementById('authCopy'),
-  authInput: document.getElementById('authInput'),
-  authConfirmInput: document.getElementById('authConfirmInput'),
-  authButton: document.getElementById('authButton'),
-  authError: document.getElementById('authError')
+  newThreadButton: document.getElementById('newThreadButton')
 };
 
 async function bootstrap() {
-  registerServiceWorker();
+  cleanupServiceWorkers();
   bindEvents();
-  await loadAuthState();
-}
-
-async function loadAuthState() {
-  const payload = await fetchJson('/api/auth/state', false);
-  state.auth.configured = Boolean(payload.configured);
-  state.auth.mode = state.auth.configured ? 'login' : 'setup';
-  syncAuthGate();
-
-  if (!state.auth.configured) {
-    showAuthGate();
-    return;
-  }
-
-  try {
-    await loadProtectedState();
-  } catch (error) {
-    if (error.code === 'AUTH_REQUIRED') {
-      showAuthGate('Enter your password to unlock the bridge.');
-      return;
-    }
-    throw error;
-  }
+  await loadProtectedState();
 }
 
 async function loadProtectedState() {
-  const payload = await fetchJson('/api/bootstrap');
-  state.threads = sortThreads(payload.threads || []);
-  state.pendingApprovals = payload.pendingApprovals || [];
-  state.connection = payload.connection || state.connection;
+  const response = await fetchJson('/api/bootstrap');
+  state.threads = sortThreads(response.threads || []);
+  state.pendingApprovals = response.pendingApprovals || [];
+  state.connection = response.connection || state.connection;
   render();
-  hideAuthGate();
 
   const initialThread = state.threads[0];
   if (initialThread) {
@@ -88,7 +54,6 @@ function bindEvents() {
   elements.sendButton.addEventListener('click', sendPrompt);
   elements.interruptButton.addEventListener('click', interruptTurn);
   elements.newThreadButton.addEventListener('click', createThread);
-  elements.authButton.addEventListener('click', submitPassword);
   elements.composerInput.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       sendPrompt();
@@ -99,18 +64,6 @@ function bindEvents() {
     button.addEventListener('click', () => {
       document.querySelector('.app-shell').dataset.panel = button.dataset.panelTarget;
     });
-  });
-
-  elements.authInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      submitPassword();
-    }
-  });
-
-  elements.authConfirmInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      submitPassword();
-    }
   });
 }
 
@@ -267,13 +220,13 @@ function applyNotification(method, params) {
   if (method === 'item/commandExecution/outputDelta') {
     const turn = ensureTurn(params.threadId, { id: params.turnId, items: [], status: 'inProgress', error: null });
     const item = ensureCommandItem(turn, params.itemId);
-    item.aggregatedOutput = `${item.aggregatedOutput || ''}${params.delta || ''}`;
+    item.aggregatedOutput = (item.aggregatedOutput || '') + (params.delta || '');
   }
 
   if (method === 'item/fileChange/outputDelta') {
     const turn = ensureTurn(params.threadId, { id: params.turnId, items: [], status: 'inProgress', error: null });
     const item = ensureFileChange(turn, params.itemId);
-    item.output = `${item.output || ''}${params.delta || ''}`;
+    item.output = (item.output || '') + (params.delta || '');
   }
 
   if (method === 'turn/diff/updated') {
@@ -396,6 +349,8 @@ function ensureFileChange(turn, itemId) {
   return item;
 }
 
+/* ── rendering ── */
+
 function render() {
   renderConnection();
   renderThreads();
@@ -404,16 +359,21 @@ function render() {
 }
 
 function renderConnection() {
-  elements.connectionLabel.textContent = state.connection.connected ? 'Live' : 'Degraded';
+  const isLive = state.connection.connected;
+  elements.connectionLabel.textContent = isLive ? 'Live' : 'Degraded';
+  elements.connectionLabel.className = 'stat-value ' + (isLive ? 'live' : 'degraded');
   elements.approvalCount.textContent = String(state.pendingApprovals.length);
 }
 
 function renderThreads() {
   const activeId = state.activeThreadId;
-  elements.threadList.innerHTML = '';
+  elements.threadList.textContent = '';
 
   if (state.threads.length === 0) {
-    elements.threadList.innerHTML = '<p class="empty-copy">No threads surfaced yet.</p>';
+    const p = document.createElement('p');
+    p.className = 'empty-copy';
+    p.textContent = 'No threads surfaced yet.';
+    elements.threadList.appendChild(p);
     return;
   }
 
@@ -421,15 +381,29 @@ function renderThreads() {
     const status = normalizeStatus(thread.status);
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = `thread-card ${thread.id === activeId ? 'active' : ''}`;
-    card.innerHTML = `
-      <span class="thread-status ${status}"></span>
-      <div class="thread-card-copy">
-        <strong>${escapeHtml(thread.name || clip(thread.preview || thread.id, 68))}</strong>
-        <p>${escapeHtml(clip(thread.preview || 'No preview', 104))}</p>
-        <small>${escapeHtml(thread.cwd || 'Local cache')}</small>
-      </div>
-    `;
+    card.className = 'thread-card' + (thread.id === activeId ? ' active' : '');
+
+    const dot = document.createElement('span');
+    dot.className = 'thread-status ' + status;
+
+    const copy = document.createElement('div');
+    copy.className = 'thread-card-copy';
+
+    const title = document.createElement('strong');
+    title.textContent = thread.name || clip(thread.preview || thread.id, 68);
+
+    const preview = document.createElement('p');
+    preview.textContent = clip(thread.preview || 'No preview', 104);
+
+    const meta = document.createElement('small');
+    meta.textContent = thread.cwd || 'Local cache';
+
+    copy.appendChild(title);
+    copy.appendChild(preview);
+    copy.appendChild(meta);
+    card.appendChild(dot);
+    card.appendChild(copy);
+
     card.addEventListener('click', async () => {
       document.querySelector('.app-shell').dataset.panel = 'chat';
       await selectThread(thread.id);
@@ -445,14 +419,21 @@ function renderStage() {
     elements.threadWorkspace.textContent = '/Users/you';
     elements.threadSource.textContent = 'codex app-server';
     elements.threadStatus.textContent = 'Standby';
-    elements.timeline.innerHTML = `
-      <div class="timeline-empty">
-        <p class="eyebrow">Signal Intake</p>
-        <h3>Select a thread to jack in.</h3>
-      </div>
-    `;
-    elements.planBody.innerHTML = '<p class="panel-placeholder">No active plan telemetry.</p>';
-    elements.diffBody.innerHTML = '<p class="panel-placeholder">No diff emitted yet.</p>';
+    elements.timeline.textContent = '';
+    const empty = document.createElement('div');
+    empty.className = 'timeline-empty';
+    const ey = document.createElement('p');
+    ey.className = 'eyebrow';
+    ey.textContent = 'Signal Intake';
+    const h = document.createElement('h3');
+    h.textContent = 'Select a thread to jack in.';
+    empty.appendChild(ey);
+    empty.appendChild(h);
+    elements.timeline.appendChild(empty);
+    elements.planBody.textContent = '';
+    appendPlaceholder(elements.planBody, 'No active plan telemetry.');
+    elements.diffBody.textContent = '';
+    appendPlaceholder(elements.diffBody, 'No diff emitted yet.');
     return;
   }
 
@@ -460,134 +441,275 @@ function renderStage() {
   elements.threadWorkspace.textContent = thread.cwd || '/Users/you';
   elements.threadSource.textContent = formatSource(thread.source);
   elements.threadStatus.textContent = normalizeStatus(thread.status);
-  elements.timeline.innerHTML = '';
+  elements.timeline.textContent = '';
 
   if (!thread.turns || thread.turns.length === 0) {
-    elements.timeline.innerHTML = '<p class="panel-placeholder">No cached turns for this thread yet.</p>';
+    appendPlaceholder(elements.timeline, 'No cached turns for this thread yet.');
   } else {
     thread.turns.forEach((turn) => {
       const article = document.createElement('article');
       article.className = 'turn-card';
-      article.innerHTML = `
-        <header class="turn-header">
-          <span class="turn-badge">${escapeHtml(turn.status || 'inProgress')}</span>
-          <span class="turn-id">${escapeHtml(turn.id)}</span>
-        </header>
-        <div class="turn-items">${turn.items.map(renderItem).join('')}</div>
-      `;
+
+      const header = document.createElement('header');
+      header.className = 'turn-header';
+      const badge = document.createElement('span');
+      badge.className = 'turn-badge';
+      badge.textContent = turn.status || 'inProgress';
+      const tid = document.createElement('span');
+      tid.className = 'turn-id';
+      tid.textContent = turn.id;
+      header.appendChild(badge);
+      header.appendChild(tid);
+
+      const items = document.createElement('div');
+      items.className = 'turn-items';
+      turn.items.forEach((item) => {
+        items.appendChild(renderItemDOM(item));
+      });
+
+      article.appendChild(header);
+      article.appendChild(items);
       elements.timeline.appendChild(article);
     });
   }
 
   renderPlanPanel(thread);
   renderDiffPanel(thread);
+  requestAnimationFrame(() => {
+    elements.timeline.scrollTop = elements.timeline.scrollHeight;
+  });
+}
+
+function renderItemDOM(item) {
+  const wrapper = document.createElement('div');
+
+  switch (item.type) {
+    case 'userMessage': {
+      wrapper.className = 'message-bubble user';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'User';
+      const p = document.createElement('p');
+      p.textContent = extractUserText(item);
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'agentMessage': {
+      wrapper.className = 'message-bubble agent';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Codex';
+      const p = document.createElement('p');
+      p.textContent = item.text || '';
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'reasoning': {
+      wrapper.className = 'telemetry-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Reasoning';
+      const p = document.createElement('p');
+      p.textContent = (item.summary || []).join(' ') || 'Internal reasoning stream';
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'commandExecution': {
+      wrapper.className = 'terminal-card';
+      const header = document.createElement('header');
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Command';
+      const cmd = document.createElement('strong');
+      cmd.textContent = item.command || 'shell';
+      header.appendChild(label);
+      header.appendChild(cmd);
+      const pre = document.createElement('pre');
+      pre.textContent = item.aggregatedOutput || '';
+      wrapper.appendChild(header);
+      wrapper.appendChild(pre);
+      break;
+    }
+    case 'fileChange': {
+      wrapper.className = 'diff-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'File Change';
+      const p = document.createElement('p');
+      p.textContent = (item.changes || []).map((c) => c.path || c.filePath || 'changed file').join(', ') || item.output || 'Patch emitted';
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'plan': {
+      wrapper.className = 'telemetry-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Plan';
+      const p = document.createElement('p');
+      p.textContent = item.text || 'Plan updated';
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'toolCall': {
+      wrapper.className = 'telemetry-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = item.tool || 'Tool';
+      const p = document.createElement('p');
+      p.textContent = clip(item.arguments || '', 280);
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'toolResult': {
+      wrapper.className = 'terminal-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Tool Output';
+      const pre = document.createElement('pre');
+      pre.textContent = item.text || '';
+      wrapper.appendChild(label);
+      wrapper.appendChild(pre);
+      break;
+    }
+    case 'webSearch': {
+      wrapper.className = 'telemetry-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Web Search';
+      const p = document.createElement('p');
+      p.textContent = item.query || '';
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    case 'contextCompaction': {
+      wrapper.className = 'telemetry-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = 'Context';
+      const p = document.createElement('p');
+      p.textContent = 'Thread context compacted.';
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+    default: {
+      wrapper.className = 'telemetry-card';
+      const label = document.createElement('span');
+      label.className = 'message-label';
+      label.textContent = item.type;
+      const p = document.createElement('p');
+      p.textContent = JSON.stringify(item).slice(0, 280);
+      wrapper.appendChild(label);
+      wrapper.appendChild(p);
+      break;
+    }
+  }
+
+  return wrapper;
 }
 
 function renderPlanPanel(thread) {
   const latestTurn = [...(thread.turns || [])].reverse().find((turn) => Array.isArray(turn.plan) && turn.plan.length > 0);
+  elements.planBody.textContent = '';
   if (!latestTurn) {
-    elements.planBody.innerHTML = '<p class="panel-placeholder">No active plan telemetry.</p>';
+    appendPlaceholder(elements.planBody, 'No active plan telemetry.');
     return;
   }
 
-  elements.planBody.innerHTML = `
-    <p class="plan-explanation">${escapeHtml(latestTurn.planExplanation || 'Latest plan state')}</p>
-    <ol class="plan-list">
-      ${latestTurn.plan.map((step) => `
-        <li class="plan-step ${escapeHtml(step.status || 'pending')}">
-          <span>${escapeHtml(step.step || 'Untitled step')}</span>
-          <strong>${escapeHtml(step.status || 'pending')}</strong>
-        </li>
-      `).join('')}
-    </ol>
-  `;
+  const explanation = document.createElement('p');
+  explanation.className = 'plan-explanation';
+  explanation.textContent = latestTurn.planExplanation || 'Latest plan state';
+  elements.planBody.appendChild(explanation);
+
+  const ol = document.createElement('ol');
+  ol.className = 'plan-list';
+  latestTurn.plan.forEach((step) => {
+    const li = document.createElement('li');
+    li.className = 'plan-step ' + (step.status || 'pending');
+    const span = document.createElement('span');
+    span.textContent = step.step || 'Untitled step';
+    const strong = document.createElement('strong');
+    strong.textContent = step.status || 'pending';
+    li.appendChild(span);
+    li.appendChild(strong);
+    ol.appendChild(li);
+  });
+  elements.planBody.appendChild(ol);
 }
 
 function renderDiffPanel(thread) {
   const latestTurn = [...(thread.turns || [])].reverse().find((turn) => turn.diff);
+  elements.diffBody.textContent = '';
   if (!latestTurn) {
-    elements.diffBody.innerHTML = '<p class="panel-placeholder">No diff emitted yet.</p>';
+    appendPlaceholder(elements.diffBody, 'No diff emitted yet.');
     return;
   }
 
-  elements.diffBody.innerHTML = `<pre>${escapeHtml(latestTurn.diff)}</pre>`;
+  const pre = document.createElement('pre');
+  pre.textContent = latestTurn.diff;
+  elements.diffBody.appendChild(pre);
 }
 
 function renderApprovalPanel() {
   elements.approvalCount.textContent = String(state.pendingApprovals.length);
+  elements.approvalBody.textContent = '';
+
   if (state.pendingApprovals.length === 0) {
-    elements.approvalBody.innerHTML = '<p class="panel-placeholder">No pending approvals.</p>';
+    appendPlaceholder(elements.approvalBody, 'No pending approvals.');
     return;
   }
 
-  elements.approvalBody.innerHTML = state.pendingApprovals.map((approval) => `
-    <article class="approval-card">
-      <header>
-        <span class="approval-method">${escapeHtml(approval.method)}</span>
-        <strong>${escapeHtml(approval.params.reason || approval.params.command || 'Approval required')}</strong>
-      </header>
-      ${approval.params.command ? `<pre>${escapeHtml(approval.params.command)}</pre>` : ''}
-      <div class="approval-actions">
-        ${approvalButtons(approval)}
-      </div>
-    </article>
-  `).join('');
+  state.pendingApprovals.forEach((approval) => {
+    const article = document.createElement('article');
+    article.className = 'approval-card';
 
-  elements.approvalBody.querySelectorAll('button[data-approval]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      await respondApproval(button.dataset.approval, button.dataset.decision);
+    const header = document.createElement('header');
+    const method = document.createElement('span');
+    method.className = 'approval-method';
+    method.textContent = approval.method;
+    const strong = document.createElement('strong');
+    strong.textContent = approval.params.reason || approval.params.command || 'Approval required';
+    header.appendChild(method);
+    header.appendChild(strong);
+    article.appendChild(header);
+
+    if (approval.params.command) {
+      const pre = document.createElement('pre');
+      pre.textContent = approval.params.command;
+      article.appendChild(pre);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'approval-actions';
+
+    const buttons = approval.method === 'item/permissions/requestApproval'
+      ? [['accept', 'Allow Turn'], ['acceptForSession', 'Allow Session']]
+      : [['accept', 'Approve'], ['acceptForSession', 'Allow Session'], ['decline', 'Decline']];
+
+    buttons.forEach(([decision, label]) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.addEventListener('click', () => respondApproval(approval.id, decision));
+      actions.appendChild(btn);
     });
+
+    article.appendChild(actions);
+    elements.approvalBody.appendChild(article);
   });
 }
 
-function renderItem(item) {
-  switch (item.type) {
-    case 'userMessage':
-      return `
-        <div class="message-bubble user">
-          <span class="message-label">User</span>
-          <p>${escapeHtml(extractUserText(item))}</p>
-        </div>
-      `;
-    case 'agentMessage':
-      return `
-        <div class="message-bubble agent">
-          <span class="message-label">Codex</span>
-          <p>${escapeHtml(item.text || '')}</p>
-        </div>
-      `;
-    case 'reasoning':
-      return `
-        <div class="telemetry-card">
-          <span class="message-label">Reasoning</span>
-          <p>${escapeHtml((item.summary || []).join(' ') || 'Internal reasoning stream')}</p>
-        </div>
-      `;
-    case 'commandExecution':
-      return `
-        <div class="terminal-card">
-          <header>
-            <span class="message-label">Command</span>
-            <strong>${escapeHtml(item.command || 'shell')}</strong>
-          </header>
-          <pre>${escapeHtml(item.aggregatedOutput || '')}</pre>
-        </div>
-      `;
-    case 'fileChange':
-      return `
-        <div class="diff-card">
-          <span class="message-label">File Change</span>
-          <p>${escapeHtml((item.changes || []).map((change) => change.path || change.filePath || 'changed file').join(', ') || item.output || 'Patch emitted')}</p>
-        </div>
-      `;
-    default:
-      return `
-        <div class="telemetry-card">
-          <span class="message-label">${escapeHtml(item.type)}</span>
-          <p>${escapeHtml(JSON.stringify(item).slice(0, 280))}</p>
-        </div>
-      `;
-  }
+function appendPlaceholder(parent, text) {
+  const p = document.createElement('p');
+  p.className = 'panel-placeholder';
+  p.textContent = text;
+  parent.appendChild(p);
 }
 
 function getActiveThread() {
@@ -616,7 +738,7 @@ function sortThreads(threads) {
 }
 
 function clip(text, size) {
-  return text.length > size ? `${text.slice(0, size - 3)}...` : text;
+  return text.length > size ? text.slice(0, size - 3) + '...' : text;
 }
 
 function dedupeApprovals(approvals) {
@@ -634,12 +756,12 @@ async function refetchThread(threadId) {
   if (!threadId) {
     return;
   }
-  const response = await fetchJson(`/api/threads/${threadId}`);
+  const response = await fetchJson('/api/threads/' + threadId);
   state.threadDetails.set(threadId, response.thread);
   renderStage();
 }
 
-async function fetchJson(url, requireAuth = true) {
+async function fetchJson(url) {
   const response = await fetch(url, {
     credentials: 'same-origin',
     headers: {
@@ -647,13 +769,11 @@ async function fetchJson(url, requireAuth = true) {
     }
   });
   if (response.status === 401) {
-    showAuthGate('Enter your password to unlock the bridge.');
-    const error = new Error('AUTH_REQUIRED');
-    error.code = 'AUTH_REQUIRED';
-    throw error;
+    window.location.href = '/login';
+    throw new Error('Session expired');
   }
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw new Error('Request failed: ' + response.status);
   }
   return response.json();
 }
@@ -669,41 +789,13 @@ async function postJson(url, payload) {
     body: JSON.stringify(payload)
   });
   if (response.status === 401) {
-    showAuthGate('Enter your password to unlock the bridge.');
-    const error = new Error('AUTH_REQUIRED');
-    error.code = 'AUTH_REQUIRED';
-    throw error;
+    window.location.href = '/login';
+    throw new Error('Session expired');
   }
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw new Error('Request failed: ' + response.status);
   }
   return response.json();
-}
-
-async function postPublicJson(url, payload) {
-  const response = await fetch(url, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
-  }
-  return data;
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 }
 
 function normalizeStatus(status) {
@@ -719,7 +811,7 @@ function normalizeStatus(status) {
   return 'unknown';
 }
 
-function registerServiceWorker() {
+function cleanupServiceWorkers() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations()
       .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
@@ -729,98 +821,11 @@ function registerServiceWorker() {
   }
 }
 
-function approvalButtons(approval) {
-  if (approval.method === 'item/permissions/requestApproval') {
-    return `
-      <button data-approval="${escapeHtml(approval.id)}" data-decision="accept">Allow Turn</button>
-      <button data-approval="${escapeHtml(approval.id)}" data-decision="acceptForSession">Allow Session</button>
-    `;
-  }
-
-  return `
-    <button data-approval="${escapeHtml(approval.id)}" data-decision="accept">Approve</button>
-    <button data-approval="${escapeHtml(approval.id)}" data-decision="acceptForSession">Allow Session</button>
-    <button data-approval="${escapeHtml(approval.id)}" data-decision="decline">Decline</button>
-  `;
-}
-
-async function submitPassword() {
-  const password = elements.authInput.value;
-  const confirm = elements.authConfirmInput.value;
-  const originalLabel = elements.authButton.textContent;
-  elements.authButton.disabled = true;
-  elements.authError.textContent = '';
-  elements.authButton.textContent = state.auth.mode === 'setup' ? 'Creating...' : 'Unlocking...';
-
-  try {
-    let response;
-    if (state.auth.mode === 'setup') {
-      if (password !== confirm) {
-        throw new Error('Passwords do not match.');
-      }
-      response = await postPublicJson('/api/auth/setup', { password });
-      state.auth.configured = true;
-      state.auth.mode = 'login';
-    } else {
-      response = await postPublicJson('/api/auth/login', { password });
-    }
-
-    elements.authInput.value = '';
-    elements.authConfirmInput.value = '';
-    await loadProtectedState();
-  } catch (error) {
-    if (error.message === 'Password already configured.') {
-      state.auth.configured = true;
-      state.auth.mode = 'login';
-      syncAuthGate();
-      showAuthGate('Password is already set. Enter it below to unlock.');
-      return;
-    }
-    showAuthGate(error.message);
-  } finally {
-    elements.authButton.disabled = false;
-    elements.authButton.textContent = originalLabel;
-  }
-}
-
-function showAuthGate(message = '') {
-  if (socket) {
-    socket.close();
-    socket = null;
-  }
-  syncAuthGate();
-  elements.authGate.hidden = false;
-  elements.authError.textContent = message;
-  elements.authInput.focus();
-}
-
-function hideAuthGate() {
-  elements.authGate.hidden = true;
-  elements.authError.textContent = '';
-}
-
-function syncAuthGate() {
-  if (state.auth.mode === 'setup') {
-    elements.authTitle.textContent = 'Create your password';
-    elements.authCopy.textContent = 'On first load, set the password you want to use for this bridge. It will be stored locally on your Mac as a salted hash.';
-    elements.authButton.textContent = 'Create Password';
-    elements.authConfirmInput.hidden = false;
-  } else {
-    elements.authTitle.textContent = 'Enter your password';
-    elements.authCopy.textContent = 'Use the password you created on this Mac to unlock the local bridge from your phone or browser.';
-    elements.authButton.textContent = 'Unlock Bridge';
-    elements.authConfirmInput.hidden = true;
-  }
-}
-
-function clearSession() {
-  return undefined;
-}
-
 bootstrap().catch((error) => {
-  if (error.code === 'AUTH_REQUIRED') {
-    return;
-  }
   console.error(error);
-  elements.timeline.innerHTML = `<p class="panel-placeholder">${escapeHtml(error.message)}</p>`;
+  const p = document.createElement('p');
+  p.className = 'panel-placeholder';
+  p.textContent = error.message;
+  elements.timeline.textContent = '';
+  elements.timeline.appendChild(p);
 });

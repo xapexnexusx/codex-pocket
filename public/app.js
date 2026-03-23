@@ -3,6 +3,11 @@ const state = {
   activeThreadId: null,
   threadDetails: new Map(),
   pendingApprovals: [],
+  polling: {
+    threadId: null,
+    timerId: null,
+    intervalMs: 0
+  },
   connection: {
     connected: false,
     lastError: null
@@ -79,6 +84,8 @@ async function selectThread(threadId) {
   state.activeThreadId = threadId;
   const response = await fetchJson(`/api/threads/${threadId}`);
   state.threadDetails.set(threadId, response.thread);
+  upsertThread(response.thread);
+  startThreadPolling(threadId, 4500);
   render();
 }
 
@@ -95,8 +102,11 @@ async function sendPrompt() {
 
   elements.sendButton.disabled = true;
   try {
-    await postJson(`/api/threads/${threadId}/prompt`, { text });
+    const response = await postJson(`/api/threads/${threadId}/prompt`, { text });
     elements.composerInput.value = '';
+    insertOptimisticTurn(threadId, response.turn?.id || `pending-${Date.now()}`, text);
+    renderStage();
+    startThreadPolling(threadId, 1200);
   } finally {
     elements.sendButton.disabled = false;
   }
@@ -108,6 +118,7 @@ async function interruptTurn() {
   }
   try {
     await postJson(`/api/threads/${state.activeThreadId}/interrupt`, {});
+    startThreadPolling(state.activeThreadId, 1200);
   } catch (error) {
     console.error(error);
   }
@@ -193,12 +204,18 @@ function applyNotification(method, params) {
   if (method === 'turn/started') {
     const turn = ensureTurn(params.threadId, params.turn);
     turn.status = params.turn.status;
+    if (params.threadId === state.activeThreadId) {
+      startThreadPolling(params.threadId, 1200);
+    }
   }
 
   if (method === 'turn/completed') {
     const turn = ensureTurn(params.threadId, params.turn);
     turn.status = params.turn.status;
     refetchThread(params.threadId);
+    if (params.threadId === state.activeThreadId) {
+      startThreadPolling(params.threadId, 4500);
+    }
   }
 
   if (method === 'item/started') {
@@ -302,6 +319,38 @@ function ensureTurn(threadId, seed) {
     detail.turns.push(turn);
   }
   return turn;
+}
+
+function insertOptimisticTurn(threadId, turnId, userText) {
+  const turn = ensureTurn(threadId, {
+    id: turnId,
+    items: [],
+    status: 'inProgress',
+    error: null
+  });
+
+  if (!turn.items.some((item) => item.type === 'userMessage')) {
+    turn.items.unshift({
+      type: 'userMessage',
+      id: `optimistic-user-${turnId}`,
+      content: [
+        {
+          type: 'text',
+          text: userText,
+          text_elements: []
+        }
+      ]
+    });
+  }
+
+  if (!turn.items.some((item) => item.id === `optimistic-agent-${turnId}`)) {
+    turn.items.push({
+      type: 'agentMessage',
+      id: `optimistic-agent-${turnId}`,
+      text: 'Streaming...',
+      phase: 'commentary'
+    });
+  }
 }
 
 function upsertItem(turn, item) {
@@ -758,7 +807,38 @@ async function refetchThread(threadId) {
   }
   const response = await fetchJson('/api/threads/' + threadId);
   state.threadDetails.set(threadId, response.thread);
+  upsertThread(response.thread);
   renderStage();
+}
+
+function startThreadPolling(threadId, intervalMs) {
+  if (!threadId) {
+    return;
+  }
+
+  if (state.polling.threadId === threadId && state.polling.intervalMs === intervalMs && state.polling.timerId) {
+    return;
+  }
+
+  stopThreadPolling();
+  state.polling.threadId = threadId;
+  state.polling.intervalMs = intervalMs;
+  state.polling.timerId = window.setInterval(() => {
+    if (state.activeThreadId !== threadId) {
+      stopThreadPolling();
+      return;
+    }
+    refetchThread(threadId).catch((error) => console.error(error));
+  }, intervalMs);
+}
+
+function stopThreadPolling() {
+  if (state.polling.timerId) {
+    window.clearInterval(state.polling.timerId);
+  }
+  state.polling.threadId = null;
+  state.polling.timerId = null;
+  state.polling.intervalMs = 0;
 }
 
 async function fetchJson(url) {

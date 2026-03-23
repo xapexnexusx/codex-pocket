@@ -735,9 +735,11 @@ function normalizeStatus(status) {
 
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
-      console.error('service worker registration failed', error);
-    });
+    navigator.serviceWorker.register('/sw.js')
+      .then((registration) => registration.update().catch(() => {}))
+      .catch((error) => {
+        console.error('service worker registration failed', error);
+      });
   }
 }
 
@@ -785,7 +787,7 @@ async function submitPassword() {
     localStorage.setItem('codex-pocket-session', state.auth.sessionToken);
     elements.authInput.value = '';
     elements.authConfirmInput.value = '';
-    window.location.reload();
+    await loadProtectedState();
   } catch (error) {
     if (error.message === 'Password already configured.') {
       state.auth.configured = true;
